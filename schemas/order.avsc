@@ -1,0 +1,19 @@
+{
+  "type": "record",
+  "name": "Order",
+  "namespace": "kafka.orders",
+  "fields": [
+    {
+      "name": "orderId",
+      "type": "string"
+    },
+    {
+      "name": "product",
+      "type": "string"
+    },
+    {
+      "name": "price",
+      "type": "float"
+    }
+  ]
+}
