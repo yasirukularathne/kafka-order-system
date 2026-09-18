@@ -45,6 +45,10 @@ flowchart LR
     J --> W
 ```
 
+### Visual Architecture Diagram
+
+![Kafka Order Processing System architecture](Architecture.png)
+
 ### Processing flow
 
 1. The producer creates a randomized order and serializes it with
@@ -192,6 +196,7 @@ running average price, DLQ count, recent orders, and average-price history.
 
 ```text
 kafka-order-system/
+├── Architecture.png          # Visual system architecture diagram
 ├── docker-compose.yml       # Single-node Kafka broker in KRaft mode
 ├── requirements.txt         # Python dependencies
 ├── dashboard_state.json     # Runtime metrics written by the consumer
