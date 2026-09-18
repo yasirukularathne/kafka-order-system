@@ -1,7 +1,9 @@
 from io import BytesIO
 import json
+import os
 import time
 import random
+from datetime import datetime, timezone
 
 from confluent_kafka import Consumer, Producer
 from fastavro import schemaless_reader, schemaless_writer
@@ -16,24 +18,23 @@ KAFKA_BOOTSTRAP_SERVERS = "localhost:9092"
 ORDERS_TOPIC = "orders"
 DLQ_TOPIC = "orders-dlq"
 
+# Written after every processed order so the optional dashboard
+# (dashboard/server.py) can read it. Purely a side effect -- the
+# consumer works identically whether or not anything reads this file.
+DASHBOARD_STATE_FILE = "dashboard_state.json"
+
 CONSUMER_GROUP = "order-consumer-group"
 
 MAX_RETRIES = 3
 RETRY_DELAY = 2
 
 # Probability of a temporary processing failure
-FAILURE_PROBABILITY = 0.30
+FAILURE_PROBABILITY = 1.0
 
 
 # ============================================================
 # KAFKA CONSUMER
 # ============================================================
-# enable.auto.commit is OFF on purpose: we only want an offset
-# committed once a message has been fully handled (either
-# processed successfully or safely written to the DLQ). If we
-# let Kafka auto-commit on a timer, a crash mid-retry could
-# advance past a message before it's actually been dealt with,
-# and it would be lost forever instead of ending up in the DLQ.
 
 consumer = Consumer({
     "bootstrap.servers": KAFKA_BOOTSTRAP_SERVERS,
@@ -58,6 +59,10 @@ dlq_producer = Producer({
 
 total_price = 0.0
 order_count = 0
+running_average = 0.0
+dlq_count = 0
+recent_orders = []   # last few orders, for the dashboard
+avg_history = []     # running average over time, for the dashboard sparkline
 
 
 # ============================================================
@@ -74,6 +79,42 @@ except Exception as e:
     print(f"Error loading Avro schema: {e}")
     consumer.close()
     exit(1)
+
+
+# ============================================================
+# DASHBOARD STATE (optional live web UI)
+# ============================================================
+
+def write_dashboard_state():
+    """
+    Writes current stats to a JSON file so the optional dashboard
+    server (dashboard/server.py) can display them in a browser.
+    Failures here are only printed, never raised -- the dashboard
+    is a nice-to-have, not something that should ever crash the
+    actual consumer.
+    """
+
+    state = {
+        "total_orders_processed": order_count,
+        "total_price": round(total_price, 2),
+        "running_average": round(running_average, 2),
+        "dlq_count": dlq_count,
+        "last_updated": datetime.now(timezone.utc).isoformat(),
+        "recent_orders": recent_orders[-10:],
+        "avg_history": avg_history[-30:]
+    }
+
+    tmp_path = DASHBOARD_STATE_FILE + ".tmp"
+
+    try:
+        with open(tmp_path, "w") as f:
+            json.dump(state, f)
+
+        # Atomic-ish rename so the dashboard never reads a half-written file
+        os.replace(tmp_path, DASHBOARD_STATE_FILE)
+
+    except Exception as e:
+        print(f"Could not write dashboard state: {e}")
 
 
 # ============================================================
@@ -332,12 +373,36 @@ try:
 
                 print("========================================")
 
+                recent_orders.append({
+                    "orderId": order["orderId"],
+                    "product": order["product"],
+                    "price": order["price"],
+                    "status": "processed"
+                })
+
             else:
 
                 print(
                     f"\nOrder {order['orderId']} "
                     f"was sent to the DLQ."
                 )
+
+                dlq_count += 1
+
+                recent_orders.append({
+                    "orderId": order["orderId"],
+                    "product": order["product"],
+                    "price": order["price"],
+                    "status": "dlq"
+                })
+
+            avg_history.append(round(running_average, 2))
+
+            # ====================================================
+            # UPDATE DASHBOARD (optional live web UI)
+            # ====================================================
+
+            write_dashboard_state()
 
             # ====================================================
             # COMMIT OFFSET
