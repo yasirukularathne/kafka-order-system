@@ -1,6 +1,6 @@
 # Kafka Order Processing System
 
-A small, end-to-end event-processing system built with Apache Kafka, Python,
+End-to-end event-processing system built with Apache Kafka, Python,
 and Avro. It generates orders, serializes them against a shared schema,
 processes them with retry handling, routes permanently failed orders to a
 dead-letter queue, and exposes live processing metrics through an optional
